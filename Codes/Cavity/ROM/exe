@@ -1,0 +1,8 @@
+#!/bin/bash
+
+FreeFem++-nw direct.edp
+FreeFem++-nw adjoint.edp
+FreeFem++-nw gramian.edp
+matlab -nodesktop -nosplash < bpod.m
+FreeFem++-nw buildredmat.edp
+

@@ -1,0 +1,3 @@
+h2.m : LTR controller
+hinf-im.m : HINF controller targetting input-multiplicative perturbations (gamma=gamma_min)
+hinf-im-10percent.m : HINF controller targetting input-multiplicative perturbations (gamma=1.1gamma_min)

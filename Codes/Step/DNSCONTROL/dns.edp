@@ -1,0 +1,265 @@
+include "../Common/intro.edp"
+
+real dt;
+int nbre;
+{
+	ifstream file("../Common/param.dat");
+	file >> nbre;	// number of iterations
+	file >> dt;	// time-step
+};
+cout << "Re = " << Re << endl;
+cout << "dt = " << dt << endl;
+
+real xnoise,ynoise,sigmaspace,sigmatemp;
+{
+	ifstream file("../Common/paramnoise.dat");
+	file >> xnoise;	// location of noise disturbance
+	file >> ynoise;
+	file >> sigmaspace;	// width of noise disturbance
+	file >> sigmatemp;	// standard deviation in time of noise disturbance
+};
+real xcontrol,ycontrol,sigmaxctrl,sigmayctrl;
+{
+	ifstream file("../Common/paramcontrol.dat");
+	file >> xcontrol;	// location of actuator
+	file >> ycontrol;
+	file >> sigmaxctrl;	// width in x of gaussian
+	file >> sigmayctrl;	// width in y
+};
+
+// Definition of the spy domain
+Up selecti=(x<=-0.25)*(x>=-0.35)*(y<=0.1);
+// Definition of the output sensor
+Up selecto=(x<=10.7)*(x>=10.3)*(y<=0.1);
+
+// read compensator
+real[int,int] regA(1,1);
+int iamax, jamax ;
+real[int,int] regB(1,1);
+int ibmax, jbmax ;
+real[int,int] regC(1,1);
+int icmax, jcmax ;
+real[int,int] regD(1,1);
+int idmax, jdmax ;
+{
+	ifstream file("../Reg/regulator.txt");
+	file >> iamax;
+	file >> jamax;
+	regA.resize(iamax,jamax);
+	for (int j=0;j<jamax;j++)
+	{
+		for (int i=0;i<iamax;i++)
+		{
+			file >> regA(i,j);
+		};
+	};
+
+	file >> ibmax;
+	file >> jbmax;
+	regB.resize(ibmax,jbmax);
+	for (int j=0;j<jbmax;j++)
+	{
+		for (int i=0;i<ibmax;i++)
+		{
+			file >> regB(i,j);
+		};
+	};
+	file >> icmax;
+	file >> jcmax;
+	regC.resize(icmax,jcmax);
+	for (int j=0;j<jcmax;j++)
+	{
+		for (int i=0;i<icmax;i++)
+		{
+			file >> regC(i,j);
+		};
+	};
+	
+	file >> idmax;
+	file >> jdmax;
+	regD.resize(idmax,jdmax);
+	for (int j=0;j<jdmax;j++)
+	{
+		for (int i=0;i<idmax;i++)
+		{
+			file >> regD(i,j);
+		};
+	};
+};
+
+// Initialisation of random series
+int seed;
+exec("echo $RANDOM > seed");
+{
+	ifstream fseed("./seed");
+	fseed >> seed;
+};
+randinit(seed);
+cout << "random seed initialization, seed = " << seed << endl;
+
+string filename="./bfs.txt";
+{
+  ofstream file(filename);
+};
+
+// Base Flow 
+Uvvp [ub1,ub2,pb];
+{
+  ifstream file("../BF/cb_"+Re+".txt");	// load base-flow
+  file >> ub1[];
+};
+
+// NL=0: linearized simulations, NL=1: non-linear simulations
+int NL=0;
+		
+Uvvp [u,v,p];			// current flowfield
+Uvvp [up,vp,pp];		// flowfield at previous time-step
+Uvvp [upp,vpp,ppp];		// flowfield at previous previous time-step
+Uvvp [rhs1,rhs2,rhs3];	// auxiliary variable
+Uvvp [nlpu,nlpv,nlpp];		//	non-linear right-hand-side at previous time-step  
+Uvvp [nlppu,nlppv,nlppp];	//	non-linear right-hand-side at previous previous time-step
+real[int] xreg(iamax);	// current state of regulator
+real[int] xreginter(iamax);	// auxiliary variable
+
+// Mass-matrix or scalar-product	
+varf Mass([u1,v1,p1],[u2,v2,p2])=int2d(th)(u1*u2+v1*v2);
+matrix MatMass=Mass(Uvvp,Uvvp,solver=CG);
+
+// Definition of disturbance input
+Uvvp [gaussnoise1,gaussnoise2,gaussnoise3];
+{
+	func real gaussspace(real x, real y)
+	{
+		return exp(-(x-xnoise)*(x-xnoise)/(2*sigmaspace*sigmaspace))*exp(-(y-ynoise)*(y-ynoise)/(2*sigmaspace*sigmaspace));
+	};
+	[rhs1,rhs2,rhs3]=[0,gaussspace(x,y),0];
+	gaussnoise1[]=MatMass*rhs1[];
+};
+
+// Definition of control input
+Uvvp [gaussctrl1,gaussctrl2,gaussctrl3];
+{
+	func real gaussspacectrl(real x, real y)
+	{
+		return exp(-(x-xcontrol)*(x-xcontrol)/(2*sigmaxctrl*sigmaxctrl))*exp(-(y-ycontrol)*(y-ycontrol)/(2*sigmayctrl*sigmayctrl));
+	};
+	[rhs1,rhs2,rhs3]=[0,gaussspacectrl(x,y),0];
+	gaussctrl1[]=MatMass*rhs1[];
+};
+
+// White noise function
+func real BoxMuller()
+{
+
+  real v1,v2,rsq,fac;
+  rsq=0.0;
+
+  while (rsq>=1 || rsq==0)
+  {
+	v1=2.0*randreal1()-1.0;
+	v2=2.0*randreal1()-1.0;
+	rsq=v1*v1+v2*v2;
+  };
+
+  fac=sqrt(-2.0*log(rsq)/rsq);
+  return v2*fac;
+};
+
+// initialize variables
+real tps=0;	// current time                                
+u[]=0;		// current flowfield	
+real input =  int1d(th,2)(dy(u)*selecti);	//current upstream measurement
+real output = int1d(th,2)(dy(u)*selecto);		// current downstream measurement
+xreg= 0.;	// current state of regulator
+
+real a0,a1,a2,bet0,bet1;
+a0=1./dt; a1=-1./dt; a2=0; bet0=1; bet1=0;	// coefficients for first-order in time integration
+
+// Linearized Navier-Stokes operator with time-stepping
+real nu=1./Re;
+varf LNS([u1,v1,p1],[u2,v2,p2])
+= int2d(th)(
+	(a0*u1*u2 + a0*v1*v2) 
+	+ nu*(dx(u1)*dx(u2)+dy(u1)*dy(u2)
+	+ dx(v1)*dx(v2)+dy(v1)*dy(v2))
+	+ u2*(u1*dx(ub1)+v1*dy(ub1)+ub1*dx(u1)+ub2*dy(u1))
+	+ v2*(u1*dx(ub2)+v1*dy(ub2)+ub1*dx(v1)+ub2*dy(v1))
+	- p1*(dx(u2)+dy(v2))
+	- p2*(dx(u1)+dy(v1)))
++ on(1,2,u1=0,v1=0);
+matrix A=LNS(Uvvp,Uvvp,solver=sparsesolver);
+
+// Non-linear term	   
+varf rhs([u1,v1,p1],[u2,v2,p2])
+= int2d(th)(
+	-u2*(u*dx(u)+v*dy(u))
+	-v2*(u*dx(v)+v*dy(v)))
++ on(1,2,u1=0,v1=0);
+
+for (int i=0;i<nbre;i++)
+{
+	cout << "tps=" << tps << endl;
+	upp[]=up[];	// weak-form of flowfields at previous time-steps
+	up[]=MatMass*u[];
+	if(NL==1)	// if NL=1, compute non-linear terms
+	{
+		nlppu[]=nlpu[];
+		nlpu[]=rhs(0,Uvvp); 
+	}
+
+	if(i==1)	// switch to second order in time
+	{
+		a0=1.5/dt; a1=-2./dt; a2=0.5/dt; bet0=2; bet1=-1;
+		A=LNS(Uvvp,Uvvp,solver=sparsesolver);
+	}
+
+	// Build right-hand-side
+	rhs1[]=-a1*up[]-a2*upp[];
+	if(NL==1)	// if NL=1, account non-linear terms
+		rhs1[]+=bet0*nlpu[]+bet1*nlppu[];
+	real coeffnoise=sigmatemp*BoxMuller();
+	rhs1[] += coeffnoise*gaussnoise1[]; // account for upstream noise
+	real coeffcontrol = regD(0,0)*input; // D matrix
+	for (int j=0;j<jcmax;j++) // C	matrix
+	{
+		coeffcontrol += regC(0,j)*xreg(j);
+	};
+	rhs1[] += coeffcontrol*gaussctrl1[]; // account for control
+
+	u[]=A^-1*rhs1[]; // update flowfield
+
+	// update state of regulator
+	xreginter = xreg;
+	xreg = 0.;
+	for (int i=0;i<iamax;i++)
+	{
+		xreg(i) += regB(i,0)*input;	// B matrix 
+		for (int j=0;j<jamax;j++)
+		{
+			xreg(i) += regA(i,j)*xreginter(j);	// A matrix
+		};
+	};
+
+	tps+=dt; // update time
+
+	rhs1[]=MatMass*u[];	
+	real nrj=u[]'*rhs1[];	// compute perturbation energy
+	input =  int1d(th,2)(dy(u)*selecti);	// update upstream measurement
+	output = int1d(th,2)(dy(u)*selecto);	// update downstream measurement
+	{
+		ofstream f(filename,append);
+		f.precision(16);
+		f << tps << "   "     // 1
+		<< nrj << "   "     // 2
+		<< input << "   "  // 3
+		<< output << "   " // 4
+		<< coeffnoise << " " // 5
+		<< coeffcontrol << " " << endl; // 6
+	};
+
+	if ((i%10000)==1)
+	{
+		ofstream g("./vect/sol"+(1000000+i)+".txt");
+		g << u[] << endl;
+	};
+};

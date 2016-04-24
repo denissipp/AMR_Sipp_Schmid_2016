@@ -1,0 +1,12 @@
+include "../Common/intro.edp";
+
+Uvvp<complex> [u,v,p];
+{
+ ifstream file("ea1.txt");
+ file >> u[];
+}
+Uvvp [ur,vr,pr];
+ur[]=u[].re;
+plot(ur,wait=1);
+plot(vr,wait=1);
+plot(pr,wait=1);

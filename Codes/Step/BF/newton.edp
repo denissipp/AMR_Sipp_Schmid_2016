@@ -1,0 +1,73 @@
+include "../Common/intro.edp"
+
+real[int] Reynolds(1);
+Reynolds=[100, 200, 350, 500];	// Reynolds numbers at which we compute base-flow
+
+string outfile="newton.txt";	// output file for convergence history
+{
+	ofstream file(outfile);
+};
+
+Uvvp [ub1,ub2,pb]; ub1[]=0;		// base-flow variable
+for(int ii=0; ii<Reynolds.n; ii++)	// loop on Reynolds numbers
+{
+	real nu=1./Reynolds(ii);		// kinematic viscosity
+	cout << "Reynolds=" << Reynolds(ii) << endl;
+
+	real normdu=1,resl2;
+
+	while(normdu>1.e-14)	// loop while delta u is non-zero
+	{
+		matrix NSMAT;
+		{
+			varf NS([du1,du2,dp],[v1,v2,q])	// Jacobian operator
+			=int2d(th)(
+				+ nu*(dx(du1)*dx(v1)+dy(du1)*dy(v1)
+				+ dx(du2)*dx(v2)+dy(du2)*dy(v2))
+				+ v1*(du1*dx(ub1)+du2*dy(ub1)+ub1*dx(du1)+ub2*dy(du1))
+				+ v2*(du1*dx(ub2)+du2*dy(ub2)+ub1*dx(du2)+ub2*dy(du2))
+				- dp*(dx(v1)+dy(v2))
+				+ q*(dx(du1)+dy(du2)))
+			+on(1,du1=4.*(y-y^2)-ub1,du2=-ub2)	// Poiseuille inflow
+			+on(2,du1=-ub1,du2=-ub2);			// No-slip on upper and lower boundaries
+			NSMAT=NS(Uvvp,Uvvp,solver=sparsesolver);
+		};
+		Uvvp [r1,r2,r3];
+		{
+			varf SMNS([du1,du2,dp],[v1,v2,q])	// Steady Navier-Stokes equations
+			=int2d(th)(
+				- nu*(dx(ub1)*dx(v1)+dy(ub1)*dy(v1)
+					  +dx(ub2)*dx(v2)+dy(ub2)*dy(v2))
+				- v1*(ub1*dx(ub1)+ub2*dy(ub1))
+				- v2*(ub1*dx(ub2)+ub2*dy(ub2))
+				+ pb*(dx(v1)+dy(v2))
+				- q*(dx(ub1)+dy(ub2)))
+			+on(1,du1=4.*(y-y^2)-ub1,du2=-ub2)	// Poiseuille inflow
+			+on(2,du1=-ub1,du2=-ub2);			// No-slip on upper and lower boundaries
+			r1[]=SMNS(0,Uvvp);
+			
+			resl2=r1[].l2;	// 2-norm
+			cout << "Re, resl2 = " << Reynolds(ii) << " " << resl2 << endl;
+		};
+		{
+			Uvvp [du1,du2,dp];
+			du1[]=NSMAT^-1*r1[];	// computation of delta u
+			normdu=sqrt(int2d(th)(du1^2+du2^2)/th.area);	// norm of delta u
+			cout << "normdu = " << normdu << endl;
+			ub1[]+=du1[];	// base-flow update
+		};
+		{
+			ofstream file(outfile,append);
+			file << Reynolds(ii) << " " << resl2 << " " << normdu << endl;
+		};
+	};
+	{
+		ofstream file("cb_"+Reynolds(ii)+".txt");
+		file.precision(16);
+		file << ub1[];
+	};
+ };
+ plot(ub1,wait=1,value=1);
+ plot(ub2,wait=1,value=1);
+ plot(pb,wait=1,value=1);
+ 

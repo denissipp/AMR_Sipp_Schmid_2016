@@ -1,0 +1,5 @@
+#!/bin/bash
+
+FreeFem++-nw eigen.edp
+FreeFem++-nw eigenadj.edp
+FreeFem++-nw plotUvvpc.edp

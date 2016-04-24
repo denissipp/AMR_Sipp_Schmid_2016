@@ -1,0 +1,4 @@
+#!/bin/bash
+
+matlab -nodesktop -nosplash < modelinv.m
+

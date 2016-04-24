@@ -1,0 +1,114 @@
+include "../Common/intro.edp"
+cout << "Re=" << Re << endl;
+	
+real dt;
+int nbre;
+{
+	ifstream file("../Common/param.dat");
+	file >> nbre;		// number of time steps of simulation
+	file >> dt;		// time step
+};
+
+string dir="vect/";
+string filename="cavite.txt";
+{
+	ofstream f(filename);
+};
+// NL=0: linearized simulations, NL=1: non-linear simulations
+int NL=1;
+
+Uvvp [u1,u2,p],[rhs1,rhs2,rhs3];
+Uvvp [up1,up2,pp];
+Uvvp [upp1,upp2,ppp];
+Uvvp [nlpu,nlpv,nlpp];		//	non-linear right-hand-side at previous time-step  
+Uvvp [nlppu,nlppv,nlppp];	//	non-linear right-hand-side at previous previous time-step
+				
+real a0,a1,a2,bet0,bet1;
+a0=1./dt; a1=-1./dt; a2=0; bet0=1.; bet1=0;	// start with first order time integration
+
+Uvvp [ub1,ub2,pb];
+{
+	ifstream file("../BF/cb_"+Re+".txt");	// load base-flow
+	file >> ub1[];
+};
+
+real nu=1./Re;
+varf LNS([u1,u2,p],[v1,v2,q])	// Linearized Navier-Stokes operator. Fully implicit, no constraint on cfl number
+= int2d(th)(
+	a0*u1*v1+a0*u2*v2 
+	+nu*(dx(u1)*dx(v1)+dy(u1)*dy(v1)+dx(u2)*dx(v2)+dy(u2)*dy(v2))
+	+v1*(u1*dx(ub1)+u2*dy(ub1)+ub1*dx(u1)+ub2*dy(u1))
+	+v2*(u1*dx(ub2)+u2*dy(ub2)+ub1*dx(u2)+ub2*dy(u2))
+	-p*(dx(v1)+dy(v2))
+	+q*(-dx(u1)-dy(u2)))
++on(1,2,u1=0,u2=0)
++on(1,2,4,6,u2=0);
+matrix MatLNS=LNS(Uvvp,Uvvp,solver=sparsesolver);
+
+// Non-linear term	   
+varf rhs([a,b,c],[v1,v2,q])
+= int2d(th)(
+	-v1*(u1*dx(u1)+u2*dy(u1))
+	-v2*(u1*dx(u2)+u2*dy(u2)))
++ on(1,2,a=0,b=0)
++ on(1,2,4,6,b=0);
+
+varf Mass([u1,u2,p],[v1,v2,q])	// mass matrix
+= int2d(th)(u1*v1+u2*v2);
+matrix MassMat=Mass(Uvvp,Uvvp,solver=CG);
+		
+real tps=0;                                            
+
+// Read measure
+Uvvp [c1,c2,c3];
+{	  
+	ifstream file("../Sensor/c.txt");
+	file >> c1[];
+};	
+
+// Read initial condition
+{	  
+	ifstream file("startvector.txt");
+	file >> u1[];
+};
+
+for (int i=0;i<=nbre; i++)	// time-loop
+{
+	upp1[]=up1[];
+	up1[]=MassMat*u1[];
+	if(NL==1)	// if NL=1, compute non-linear terms
+	{
+		nlppu[]=nlpu[];
+		nlpu[]=rhs(0,Uvvp); 
+	}
+	if(i==1)	// switch to second order in time
+	{
+		a0=1.5/dt; a1=-2./dt; a2=0.5/dt; bet0=2; bet1=-1;
+		MatLNS=LNS(Uvvp,Uvvp,solver=sparsesolver);
+	}
+			
+	rhs1[]=-a1*up1[]-a2*upp1[];		// build right-hand-side
+	if(NL==1)	// if NL=1, account non-linear terms
+		rhs1[]+=bet0*nlpu[]+bet1*nlppu[];
+	u1[]=MatLNS^-1*rhs1[];			// compute new flowfield
+	tps+=dt;				// advance time-step
+
+	real m=c1[]'*u1[];	// measure shear-stress
+	rhs1[]=MassMat*u1[];
+	real nrj=u1[]'*rhs1[];	// energy of perturbation
+
+	{
+		cout << " i = " << i << endl;
+		cout << " tps = " << tps << endl;
+		ofstream f(filename,append);
+		f.precision(16);
+		f << tps << "   " << nrj << "   " << m << endl; 
+	};
+			
+	if((i%10000)==1)
+    {
+		ofstream file(dir+"cbf_"+(100000+i)+"_.txt");
+		file.precision(16);
+		file << u1[] << endl;
+	};	
+};

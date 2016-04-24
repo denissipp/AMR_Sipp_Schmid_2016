@@ -1,0 +1,19 @@
+include "../Common/intro.edp"
+Uvvp [u1,u2,p];
+{
+	Uvvp<complex> [v1,v2,q];
+	{
+		ifstream file("../Eigs/ev1.txt");	// Read complex eigenvector
+		file >> v1[];
+	}
+	u1[]=v1[].re;	// take real part
+	Uv uu=u1;		
+	real maxuu=uu[].max;	// determine maximum of streamwise velocity
+	u1[]*=1./maxuu*0.005;	// normalize initial condition
+};
+
+{
+	ofstream file("startvector.txt");
+	file.precision(16);
+	file << u1[] << endl;
+};

@@ -1,0 +1,9 @@
+echo "((( Base-flow"; cd BF; sh exe;
+echo "((( Sensor"; cd ../Sensor; sh exe;
+echo "((( Actuator"; cd ../Actuator; sh exe;
+echo "((( Eigenvalues"; cd ../Eigs; sh exe;
+echo "((( Reduced-Order model"; cd ../ROM; sh exe;
+echo "((( Regulator"; cd ../Reg; sh exe;
+echo "((( Closed-loop control"; cd ../DNSCONTROL; sh exe;
+
+

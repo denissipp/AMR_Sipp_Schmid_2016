@@ -1,0 +1,22 @@
+include "../Common/intro.edp"
+
+Up select=(x>1.0001)*(x<1.1);	// region of sensing (downstream edge)
+Uv u,c1;
+
+for(int i=0; i<Uv.ndof; i++)	// loop on all degrees of freedon of u
+{
+ u[]=0;	// set all degrees of freedom of u to zero, except the i th one
+ u[][i]=1;
+ real mes=int1d(th,2)(dy(u)*select);	// measure snapshot
+ c1[][i]=mes;	// store value in measurement matrix
+ cout << i << "   " << mes << endl;
+};
+
+Uvvp [m1,m2,m3];
+[m1,m2,m3]=[c1,0,0];
+{
+ofstream file("c.txt");
+file.precision(16);
+file << m1[] << endl;
+};
+plot(m1,wait=1,value=1);

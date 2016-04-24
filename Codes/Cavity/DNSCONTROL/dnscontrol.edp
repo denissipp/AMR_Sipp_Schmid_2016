@@ -1,0 +1,206 @@
+include "../Common/intro.edp"
+cout << "Re=" << Re << endl;
+	
+real dt;
+int nm,nbre;
+{
+	int p,nstab,step;
+	ifstream file("../Common/param.dat");
+	file >> nbre;	// number of time steps in simulation
+	file >> dt;		// time step
+	file >> step;	// number of time steps between two snapshots
+	file >> p;		// total number of computed bpod modes
+	file >> nstab;	// number of bpod modes in rom
+    nm=unstable*2+nstab;
+};
+cout << "size of rom=" << nm << endl;
+
+string dir="vect/";
+string filename="cavite.txt";	// file for output
+{
+   	ofstream f(filename);
+};
+
+// NL=0: linearized simulations, NL=1: non-linear simulations
+int NL=0;
+
+Uvvp [u1,u2,p],[rhs1,rhs2,rhs3];
+Uvvp [up1,up2,pp];
+Uvvp [upp1,upp2,ppp];
+Uvvp [nlpu,nlpv,nlpp];		//	non-linear right-hand-side at previous time-step  
+Uvvp [nlppu,nlppv,nlppp];	//	non-linear right-hand-side at previous previous time-step
+				
+real a0,a1,a2,bet0,bet1;	
+a0=1./dt; a1=-1./dt; a2=0; bet0=1; bet1=0;	// first order integration in time
+
+Uvvp [ub1,ub2,pb];
+{
+	ifstream file("../BF/cb_"+Re+".txt");	// read base-flow
+	file >> ub1[];
+};
+
+real nu=1./Re;
+varf LNS([u1,u2,dp],[v1,v2,q]) 	// Linearized Navier-Stokes operator. Fully implicit, no constraint on cfl number
+= int2d(th)(
+	a0*u1*v1+a0*u2*v2 
+   	+nu*(dx(u1)*dx(v1)+dy(u1)*dy(v1)+dx(u2)*dx(v2)+dy(u2)*dy(v2))
+	+v1*(u1*dx(ub1)+u2*dy(ub1)+ub1*dx(u1)+ub2*dy(u1))
+	+v2*(u1*dx(ub2)+u2*dy(ub2)+ub1*dx(u2)+ub2*dy(u2))
+    -dp*(dx(v1)+dy(v2))
+    +q*(-dx(u1)-dy(u2)))
++on(1,2,u1=0,u2=0)
++on(1,2,4,6,u2=0);
+matrix MatLNS=LNS(Uvvp,Uvvp,solver=sparsesolver);
+
+// Non-linear term	   
+varf rhs([a,b,c],[v1,v2,q])
+= int2d(th)(
+	-v1*(u1*dx(u1)+u2*dy(u1))
+	-v2*(u1*dx(u2)+u2*dy(u2)))
++ on(1,2,a=0,b=0)
++ on(1,2,4,6,b=0);
+
+varf Mass([du1,du2,dp],[v1,v2,q])	// Mass matrix
+= int2d(th)(du1*v1+du2*v2);
+matrix MassMat=Mass(Uvvp,Uvvp,solver=CG);
+
+Uvvp [fx,fy,fp];	// forcing structure
+real u,up,upp;		// control and previous controls
+real m,mp,mpp;		// measure and previous measures
+{  
+	ifstream file("../Actuator/b2.txt"); // read control
+	file >> rhs1[];
+    fx[]=MassMat*rhs1[];	// store weak form
+};
+       
+real[int,int] J(nm,nm);	// matrices (J,K,L,M) defining control law
+real[int] K(nm),L(nm);	
+real M;
+real[int] yy(nm),yyp(nm),yypp(nm);	// state vector of control law
+real[int] aux(nm);	// auxiliary variable
+
+////////////////
+// Read J
+////////////////
+{
+	ifstream file("../Reg/J.txt");
+   	for(int i=1; i<=nm; i++)
+   	{
+		for(int j=1; j<=nm; j++)
+        {
+			file >> J(j-1,i-1);
+		};
+   	};
+};
+
+////////////
+// Read K 
+////////////
+{
+	ifstream file("../Reg/K.txt");
+	for(int k=1; k<=nm; k++)
+	{
+		file >> K(k-1);
+	};
+};
+
+////////////
+// Read L 
+////////////
+{
+	ifstream file("../Reg/L.txt");
+	for(int k=1; k<=nm; k++)
+	{
+		file >> L(k-1);
+	};
+};
+
+////////////
+// Read M 
+////////////
+{
+	ifstream file("../Reg/M.txt");
+	file >> M;
+};
+
+real tps=0;                                            
+
+Uvvp [c1,c2,c3];	// Matrix defining sensor
+{	  
+	ifstream file("../Sensor/c.txt");	// Read measure
+	file >> c1[];
+};	
+
+{	  
+	ifstream file("startvector.txt");	// Initial condition
+	file >> u1[];
+};
+
+yy=0.;	// initialize control law system
+m=c1[]'*u1[];	// initial measure
+u=yy'*K+M*m;	// initial control
+
+for (int i=0;i<=nbre; i++)	// time-loop
+{
+	cout << " tps = " << tps << endl;
+    	
+	upp1[]=up1[];
+	up1[]=MassMat*u1[];
+	if(NL==1)	// if NL=1, compute non-linear terms
+	{
+		nlppu[]=nlpu[];
+		nlpu[]=rhs(0,Uvvp); 
+	}
+	if(i==1)	// swith to second order
+	{
+		a0=1.5/dt; a1=-2./dt; a2=0.5/dt; bet0=2; bet1=-1;
+   		MatLNS=LNS(Uvvp,Uvvp,solver=sparsesolver);
+	}
+				
+   	yypp=yyp;
+   	upp=up;
+    mpp=mp;
+
+   	yyp=yy;
+    up=u;
+    mp=m;
+
+	// update state in control law
+ 	yy=L*mp;
+ 	yy+=J*yyp;
+  	if(i>=1)	// switch to second order
+   	{ 
+		yy*=1.5;
+	    aux=L*mpp;
+	    aux+=J*yypp;
+	    yy-=0.5*aux;
+    }
+	yy*=dt;
+	yy+=yyp;
+	
+	// update dns field
+	rhs1[]=-a1*up1[]-a2*upp1[];		// build right-hand-side
+	if(NL==1)	// if NL=1, account non-linear terms
+		rhs1[]+=bet0*nlpu[]+bet1*nlppu[];
+    	rhs1[]+=(bet0*up+bet1*upp)*fx[];	// account for control
+	u1[]=MatLNS^-1*rhs1[];			// compute new flowfield
+	
+	tps+=dt;		// advance time-step
+	m=c1[]'*u1[];	// update measure
+    u=yy'*K+M*m;	// update control
+
+    rhs1[]=MassMat*u1[];
+    real nrj=u1[]'*rhs1[];
+	{
+	    ofstream f(filename,append);
+		f.precision(16);
+ 		f << tps << "   " << nrj << "   " << m << "   " << u << endl; 
+	};
+			
+    if((i%10000)==1)
+	{
+		ofstream file(dir+"cbf_"+(100000+i)+"_.txt");
+        file.precision(16);
+        file << u1[] << endl;
+	};
+};

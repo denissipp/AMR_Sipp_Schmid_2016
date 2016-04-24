@@ -1,0 +1,4 @@
+#!/bin/bash
+
+matlab -nodesktop -nosplash < h2.m
+

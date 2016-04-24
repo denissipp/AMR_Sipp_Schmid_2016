@@ -1,0 +1,174 @@
+include "../Common/intro.edp"
+int nbre;
+{
+ int nn,step;
+ real dt;
+ ifstream file("../Common/param.dat");
+ file >> nn;	// number of iterations
+ file >> dt;	// time-step
+ file >> step;	// number of time steps between 2 snapshots
+ file >> nbre;	// total number of computer bpod modes
+};
+
+// A, B and C matrices defining ROM
+real[int,int] A(2*unstable+nbre,2*unstable+nbre);
+real[int] B(2*unstable+nbre);
+real[int] C(2*unstable+nbre);
+
+A=0;
+B=0;
+C=0;
+
+Uvvp [ub1,ub2,pb];
+{
+	ifstream file("../BF/cb_"+Re+".txt");	// read base-flow
+	file >> ub1[];
+};
+
+real nu=1./Re;
+varf LNS([u1,u2,p],[v1,v2,q])	// Linearized Navier-Stokes operator
+= int2d(th)(
+	- ((ub1*dx(u1)+u1*dx(ub1)+ub2*dy(u1)+u2*dy(ub1))*v1)
+	- ((ub1*dx(u2)+u1*dx(ub2)+ub2*dy(u2)+u2*dy(ub2))*v2)
+	- nu*(dx(u1)*dx(v1)+dy(u1)*dy(v1))
+	- nu*(dx(u2)*dx(v2)+dy(u2)*dy(v2))
+	+ p*(dx(v1)+dy(v2))
+    + (dx(u1)+dy(u2))*q
+);
+varf Mass([u1,u2,p],[v1,v2,q]) =int2d(th)(u1*v1+u2*v2);	// Mass-matrix
+
+// Part of matrices involving unstable global modes
+// Complex formalism since global modes are complex	
+{
+	Uvvp<complex> [c1,c2,c3];
+	{
+		ifstream file("../Sensor/c.txt");	// read measurement matrix
+        file >> c1[];
+    };
+
+	Uvvp<complex> [b1,b2,b3];
+	{
+		ifstream file("../Actuator/b2.txt");	// read actuator matrix
+        file >> b1[];
+	};
+
+	matrix<complex> MatLNS=LNS(Uvvp,Uvvp);	// build Jacobian matrix
+	matrix<complex> MatMass=Mass(Uvvp,Uvvp,solver=CG); // build Mass matrix, solver=CG means storage in symmetric format
+
+	Uvvp<complex> [u,v,p];
+	Uvvp<complex> [ua,va,pa];
+	Uvvp<complex> [aux1,aux2,aux3];
+
+	for(int ii=0; ii<unstable; ii++)
+	{
+		{
+			ifstream file("../Eigs/ev"+ii+".txt");	// read eigenvector
+			file >> u[];
+		}
+		complex ps=c1[]'*u[];	// measure eigenvector
+		cout << "c=" << ps << endl;
+		C(2*ii)=2*real(ps);		// store in real measurement matrix
+		C(2*ii+1)=-2*imag(ps);
+
+		{
+			ifstream file3("../Eigs/ea"+ii+".txt");	// read adjoint eigenvector
+			file3 >> ua[];
+		}
+		// compute eigenvalue linked to eigenvector
+		aux1[]=MatLNS*u[];
+		ps=ua[]'*aux1[];
+		cout << "eigenvalue=" << ps << endl;
+		A(2*ii,2*ii)=real(ps);	// store in real matrix
+		A(2*ii,2*ii+1)=-imag(ps);
+		A(2*ii+1,2*ii)=imag(ps);
+		A(2*ii+1,2*ii+1)=real(ps);
+
+		// compute reduced actuator matrix
+        aux1[]=MatMass*b1[];
+		ps=ua[]'*aux1[];
+		cout << "b2=" << ps << endl;
+		B(2*ii)=real(ps);
+		B(2*ii+1)=imag(ps);
+	};
+};
+
+// Part of matrices involving balanced modes
+// Real formalism since balanced modes are real	
+{
+	Uvvp [c1,c2,c3];
+	{
+		ifstream file("../Sensor/c.txt");	// read measurement matrix
+		file >> c1[];
+	};
+
+	Uvvp [b1,b2,b3];
+	{
+        ifstream file("../Actuator/b2.txt");	// read actuator matrix	
+        file >> b1[];
+	};
+
+  	matrix MatLNS=LNS(Uvvp,Uvvp);	// build Jacobian matrix
+	matrix MatMass=Mass(Uvvp,Uvvp,solver=CG);	// build mass-matrix
+
+	Uvvp [ud,vd,pd];
+	Uvvp[int] [ua,va,pa](nbre);
+	Uvvp [aux1,aux2,aux3];
+	
+	aux1[]=MatMass*b1[];
+	for (int j=1;j<=nbre; j++)
+	{	
+		{
+			ifstream file("BPOD/modeadj_"+j+"_.txt"); 
+			file >> ua[j-1][];
+		};
+	    B(j-1+2*unstable)=ua[j-1][]'*aux1[];	// reduced actuator matrix
+    };
+
+	for (int i=1;i<=nbre; i++)
+ 	{
+		{
+			ifstream file("BPOD/mode_"+i+"_.txt");
+			file >> ud[];
+		}
+		C(i-1+2*unstable)=c1[]'*ud[];	// measure balanced structure
+
+		aux1[]=MatLNS*ud[];
+		for (int j=1;j<=nbre; j++)
+ 		{	
+		    A(j-1+2*unstable,i-1+2*unstable)=ua[j-1][]'*aux1[];	// reduced Jacobian matrix
+		};
+    };
+};
+
+// Save reduced A matrix
+{
+	ofstream file("A.txt");
+	file.precision(16);
+	for(int i=1; i<=nbre+2*unstable; i++)
+	{
+		for(int j=1; j<=nbre+2*unstable; j++)
+		{
+			file << A(j-1,i-1) << endl;
+		};
+	};
+};
+
+// Save reduced B matrix
+{
+	ofstream file("B2.txt");
+	file.precision(16);
+	for(int i=1; i<=nbre+2*unstable; i++)
+	{
+		file << B(i-1) << endl;
+	};
+};
+
+// Store reduced C matrix
+{
+	ofstream file("C.txt");
+	file.precision(16);
+	for(int i=1; i<=nbre+2*unstable; i++)
+	{
+		file << C(i-1) << endl;
+	};
+};

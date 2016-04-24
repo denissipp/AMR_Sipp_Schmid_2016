@@ -1,0 +1,6 @@
+echo "((( Base-flow"; cd BF; sh exe;
+echo "((( Learning and validation datasets"; cd ../DNSLEARN; sh exe;
+echo "((( Compute regulator"; cd ../Reg; sh exe;
+echo "((( Closed-loop control"; cd ../DNSCONTROL; sh exe;
+
+

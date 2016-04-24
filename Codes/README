@@ -1,0 +1,9 @@
+# Install latest version of FREEFEM++ software (go to www.freefem.org). All programs have been tested with version 3.42.
+# On Linux platforms, be sure to compile the MUMPS solver (For Windows and Mac, MUMPS is automatically included in the precompiled installation packages .exe and .pkg) 
+# Install MATLAB. All programs have been tested with version R2012b.
+# To launch all cavity programs:
+cd Cavity
+sh exe
+# To launch all backward facing step programs:
+cd Step
+sh exe

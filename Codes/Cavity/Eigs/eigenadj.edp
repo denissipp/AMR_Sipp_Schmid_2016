@@ -1,0 +1,65 @@
+include "../Common/intro.edp"
+cout << "Re = " << Re << endl;
+cout << endl;
+
+complex shift;
+complex[int] sh=[0.5-1i*7.9,0.9-1i*10.9,0.8-1i*13.8,0.1-1i*16.7];	// list of shifts for eigenvalue computations
+
+Uvvp [ub1,ub2,pb];
+{
+ ifstream file("../BF/cb_"+Re+".txt");	// load base-flow
+ file >> ub1[];
+};
+
+real nu=1./Re;
+varf a([u1,u2,p],[v1,v2,q])	// Jacobian operator with shift
+= int2d(th)(
+	-((ub1*dx(u1)+u1*dx(ub1)+ub2*dy(u1)+u2*dy(ub1))*v1)
+	-((ub1*dx(u2)+u1*dx(ub2)+ub2*dy(u2)+u2*dy(ub2))*v2)
+	- nu*(dx(u1)*dx(v1)+dy(u1)*dy(v1))
+	- nu*(dx(u2)*dx(v2)+dy(u2)*dy(v2))
+	+ p*(dx(v1)+dy(v2))
+	+ (dx(u1)+dy(u2))*q
+	- conj(shift)*(u1*v1+u2*v2))	// conj(shift) because A=A' below makes the shift complex conjugate
+  + on(1,2,u1=0.,u2=0.)
+  + on(4,6,u2=0.);
+
+varf b([u1,u2,p],[v1,v2,q])	// Mass-matrix
+= int2d(th)(u1*v1+u2*v2);
+matrix<complex> B= b(Uvvp,Uvvp,solver=CG);	// solver=CG means that the matrix should be stored in a symmetric type format
+
+int nev=2;	// 2 eigenvalues requested for each shift, nev>=2 required in FreeFem, ideally nev=1
+complex[int] ev(nev);	// eigenvalue array
+Uvvp<complex>[int] [eVu,eVv,eVp](nev);	// eigenvector array
+{
+ ofstream file("vpa.txt");	// file to store eigenvalues
+}
+
+for(int kk=0; kk<sh.n; kk++)
+{
+ shift=sh(kk);
+ matrix<complex> A=a(Uvvp,Uvvp);	// A matrix for eigen-poblem Ax=lambda Bx
+ A=A';	// for adjoint eigen-poblem
+ set(A,solver=sparsesolver);
+ int k=EigenValue(A,B,sigma=shift,value=ev,vector=eVu,tol=1e-10,maxit=1000,ncv=20);	// Compute eigenvalues
+
+ { 
+  ofstream file("vpa.txt",append);	// write eigenvalue
+  file.precision(16);
+  file << real(ev[0]) << " " << imag(ev[0]) << " " << kk << endl;
+ }
+
+ /// Normalization of adjoint eigenvector
+ Uvvp<complex> [u,v,p];
+ {
+  ifstream file("ev"+kk+".txt");	// read direct eigenmode
+  file >> u[];
+ }
+ complex ps=int2d(th)(conj(eVu[0])*u+conj(eVv[0])*v);	// compute scalar poduct
+ eVu[0][]*=1./conj(ps);	// normalize adjoint eigenvector
+ {
+  ofstream file("ea"+kk+".txt");	// write adjoint eigenvector
+  file.precision(16);
+  file << eVu[0][] << endl;
+ }
+}

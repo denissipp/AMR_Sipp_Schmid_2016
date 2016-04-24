@@ -1,0 +1,16 @@
+include "../Common/intro.edp"
+
+real sigma=0.0849;	// width of gaussian forcing
+real x0=-0.1;		// location
+real y0=0.02;
+Up select=(sqrt((x-x0)^2+(y-y0)^2)<=0.4);	// set forcing to zero outside a circle of radius 0.4
+
+Uvvp [u,v,p];
+[u,v,p]=[0,select*exp(-((x-x0)^2+(y-y0)^2)/2/sigma^2),0];	// forcing on v-component
+
+{
+   ofstream file("b2.txt");
+   file.precision(16);
+   file << u[];
+};
+plot(v,wait=1,value=1);

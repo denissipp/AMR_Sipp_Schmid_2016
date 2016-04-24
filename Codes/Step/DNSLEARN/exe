@@ -1,0 +1,5 @@
+#!/bin/bash
+
+matlab -nodesktop -nosplash < signalgen.m
+FreeFem++-nw dns.edp
+

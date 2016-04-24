@@ -1,0 +1,74 @@
+include "../Common/intro.edp"
+real dt;
+int nbre,step;
+{
+	ifstream file("../Common/param.dat");
+	file >> nbre;	// number of iterations in direct and adjoint simulation
+	file >> dt;		// time-step
+	file >> step;	// number of time-steps between two snapshots
+};	
+int ns=(nbre-1)/step+1;	// number of snapshots
+
+string dir="sol_dir/";
+string diradj="sol_adj/";
+string filename="gramian.txt";
+{
+	ofstream f(filename);
+};
+
+Uvvp [ud,vd,pd];
+Uvvp[int] [ua,va,pa](ns);
+Uvvp [aux1,aux2,aux3];
+		
+varf Mass([v1,v2,v3],[w1,w2,w3])=int2d(th)(v1*w1+v2*w2);	// mass-matrix
+matrix MatMass=Mass(Uvvp,Uvvp,solver=CG);
+	
+for (int j=1;j<=nbre; j+=step)	// loop to read all snapshots of adjoint simulation
+{
+	cout << endl << j << "   " << (j-1)/step << endl;	
+	{
+		ifstream file(diradj+"adj_"+(100000+j)+"_.txt"); 
+		file >> ua[(j-1)/step][];
+	};    
+};	
+
+int numi,numj;
+real muli,mulj;
+for (int i=1;i<=nbre; i+=step)	// loop on snapshots of direct simulation
+{
+	{
+		ifstream file(dir+"cbf_"+(100000+i)+"_.txt");
+		file >> ud[] ;
+	};
+	aux1[]=MatMass*ud[];
+
+	numi=(i-1)/step+1;
+	if((numi==1)|(numi==((nbre-1)/step+1)))
+		muli=sqrt(1.*step*dt/3.);
+	else if((numi%2)==0)
+		muli=sqrt(4.*step*dt/3.);
+	else
+		muli=sqrt(2.*step*dt/3.);
+
+	for (int j=1;j<=nbre; j+=step)	// loop on snapshots of adjoint simulation
+	{				                     	  
+	    numj=(j-1)/step+1;
+		real ps=ua[numj-1][]'*aux1[];
+			      
+		if((numj==1)|(numj==((nbre-1)/step+1)))
+			mulj=sqrt(1.*step*dt/3.);
+		else if((numj%2)==0)
+			mulj=sqrt(4.*step*dt/3.);
+		else
+			mulj=sqrt(2.*step*dt/3.);
+									  
+		ps*=(muli*mulj);	// gramian coefficient
+
+	    cout << " i,j = " << i <<"  "<< j << "  " << muli << "   " << mulj << endl;			      
+		{
+			ofstream f(filename,append);
+			f.precision(16);
+			f << ps << endl;	// write gramian coefficient
+		};
+	};
+};

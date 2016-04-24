@@ -1,0 +1,118 @@
+include "../Common/intro.edp"
+cout << "Re=" << Re << endl;
+cout << "Number of unstable modes=" << unstable << endl;
+	
+real dt;
+int nbre,step;
+{
+	ifstream file("../Common/param.dat");
+	file >> nbre;		// number of time steps of simulation
+	file >> dt;			// time step
+	file >> step;		// number of time steps to define sampling time
+};
+
+string dir="sol_dir/";	// directory to store snapshots
+
+string filename="direct.txt";	// output file
+{
+   	ofstream f(filename);
+};
+
+Uvvp [u1,u2,p],[rhs1,rhs2,rhs3];
+Uvvp [up1,up2,pp];
+Uvvp [upp1,upp2,ppp];
+				
+real a0,a1,a2,bet0,bet1;
+a0=1./dt; a1=-1./dt; a2=0; bet0=1./dt; bet1=0;
+
+Uvvp [ub1,ub2,pb];
+{
+	ifstream file("../BF/cb_"+Re+".txt");	// load base-flow
+	file >> ub1[];
+};
+
+real nu=1./Re;
+varf LNS([du1,du2,dp],[v1,v2,q])	// Linearized Navier-Stokes operator. Fully implicit, no constraint on cfl number
+= int2d(th)(
+	a0*du1*v1+a0*du2*v2 
+    + nu*(dx(du1)*dx(v1)+dy(du1)*dy(v1)+dx(du2)*dx(v2)+dy(du2)*dy(v2))
+	+ v1*(du1*dx(ub1)+du2*dy(ub1)+ub1*dx(du1)+ub2*dy(du1))
+	+ v2*(du1*dx(ub2)+du2*dy(ub2)+ub1*dx(du2)+ub2*dy(du2))
+    - dp*(dx(v1)+dy(v2))
+    + q*(-dx(du1)-dy(du2)))
++ on(1,2,du1=0,du2=0)
++ on(1,2,4,6,du2=0);
+matrix MatLNS=LNS(Uvvp,Uvvp,solver=sparsesolver);
+
+varf Mass([du1,du2,dp],[v1,v2,q])	// Mass-matrix
+= int2d(th)(du1*v1+du2*v2);
+matrix MassMat=Mass(Uvvp,Uvvp,solver=CG);
+		
+real tps=0.;                                            
+
+Uvvp<complex>[int] [ud,vd,pd](unstable);	// direct unstable modes
+Uvvp<complex>[int] [ua,va,pa](unstable);	// adjoint unstable modes
+		
+// Read direct and adjoint global modes
+for(int ii=0; ii<unstable; ii++)
+{
+	ifstream file("../Eigs/ev"+ii+".txt");
+	file >> ud[ii][];
+
+	ifstream file2("../Eigs/ea"+ii+".txt");
+	file2 >> ua[ii][];
+};
+
+// Read measurement matrix
+Uvvp [c1,c2,c3];
+{	  
+	ifstream file("../Sensor/c.txt");
+	file >> c1[];
+};	
+
+// Read actuator matrix in initial condition
+{	  
+	ifstream file("../Actuator/b2.txt");
+	file >> u1[];
+};
+
+rhs1[]=MassMat*u1[];
+for(int ii=0; ii<unstable; ii++)	// Project actuator matrix on stable subspace
+{
+	real psi=ua[ii][].im'*rhs1[];
+	real psr=ua[ii][].re'*rhs1[];
+	u1[]-=(2.*psr)*ud[ii][].re;
+	u1[]-=(2.*psi)*ud[ii][].im;
+};
+	
+for (int i=1;i<=nbre; i++)	// time-loop
+{
+	cout << " tps = " << tps << endl;
+
+	upp1[]=up1[];
+	up1[]=MassMat*u1[];
+	if(i==2)	// switch to second-order
+	{
+		a0=1.5/dt; a1=-2./dt; a2=0.5/dt; bet0=2; bet1=-1;
+   		MatLNS=LNS(Uvvp,Uvvp,solver=sparsesolver);
+  	}
+				
+	rhs1[]=-a1*up1[]-a2*upp1[];		// build right-hand-side
+	u1[]=MatLNS^-1*rhs1[];			// compute new flowfield
+	tps+=dt;						// advance time-step
+
+    rhs1[]=MassMat*u1[];
+    real nrj=u1[]'*rhs1[];
+	{
+        ofstream f(filename,append);
+		f.precision(16);
+ 		f << tps << "   " << nrj << "   " << c1[]'*u1[] << endl; 
+	};
+			
+    if((i%step)==1)
+	{
+		ofstream file(dir+"cbf_"+(100000+i)+"_.txt");
+        file.precision(16);
+        file << u1[] << endl;
+	};
+};

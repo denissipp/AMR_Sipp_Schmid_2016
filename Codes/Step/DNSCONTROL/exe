@@ -1,0 +1,4 @@
+#!/bin/bash
+
+FreeFem++-nw dns.edp
+
